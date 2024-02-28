@@ -1,0 +1,72 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    strategy:
+      matrix:
+        platform: [x64, x86]
+      
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v2
+
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v1.0.0
+
+    - name: Restore NuGet Packages
+      run: nuget restore
+      
+    - name: Build Solution
+      run: msbuild /verbosity:minimal /property:langversion=latest "SafeExamBrowser.sln" /p:Platform=$(matrix.platform)
+
+    - name: Archive Artifact
+      uses: actions/upload-artifact@v2
+      with:
+        name: SEB_Setup
+        path: Setup/bin/${{ matrix.platform }}/Release/Setup.msi
+
+  release:
+    needs: build
+    runs-on: windows-latest
+
+    steps:
+    - name: Download Artifact
+      uses: actions/download-artifact@v2
+      with:
+        name: SEB_Setup
+
+    - name: Rename Artifact
+      run: |
+        mv Setup/bin/x64/Release/Setup.msi SEB_Setup_x64.msi
+        mv Setup/bin/x86/Release/Setup.msi SEB_Setup_x86.msi
+
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: v${{ github.run_number }}
+        release_name: Release ${{ github.run_number }}
+        body: |
+          New release version ${{ github.run_number }}.
+        draft: false
+        prerelease: true
+
+    - name: Upload Release Asset
+      id: upload-release-asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./*.msi
+        asset_name: SEB_Setup_${{ matrix.platform }}.msi
+        asset_content_type: application/octet-stream
